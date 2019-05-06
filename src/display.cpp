@@ -9,7 +9,7 @@
 #include <std_msgs/Float64MultiArray.h>
 #include <std_msgs/Float64.h>
 #include <geometry_msgs/Twist.h>
-#include "../../../devel/include/darknet_ros_msgs/BoundingBoxes.h"
+#include "/home/gg/intel_nav_ws/devel/include/darknet_ros_msgs/BoundingBoxes.h"
 #include <string>
 #include <vector>
 
@@ -171,6 +171,8 @@ void callbackRGB(const sensor_msgs::ImageConstPtr& rgb_msg)
         return;
     }
     cv::Mat rgb_img = rgb_ptr->image;
+    cv::resize(rgb_img, rgb_img, cv::Size(640,480));
+
 
     add_infos(rgb_img);
 
@@ -183,7 +185,7 @@ void callbackDepth(const sensor_msgs::ImageConstPtr& depth_msg)
     cv_bridge::CvImagePtr depth_ptr;
     try
     {
-        depth_ptr = cv_bridge::toCvCopy(depth_msg);
+        depth_ptr = cv_bridge::toCvCopy(depth_msg, sensor_msgs::image_encodings::TYPE_32FC1);
     }
     catch (cv_bridge::Exception& e2)
     {
@@ -191,6 +193,7 @@ void callbackDepth(const sensor_msgs::ImageConstPtr& depth_msg)
         return;
     }
     cv::Mat depth_img = depth_ptr->image;
+    
 
     /// Transform to a Uint8 image
     int nr = depth_img.rows;
@@ -204,17 +207,25 @@ void callbackDepth(const sensor_msgs::ImageConstPtr& depth_msg)
 
         for(int j=0; j<nc; j++)
         {
-            if (inDepth[j] > 4.5 || inDepth[j] != inDepth[j]) {
+            // cout<< " " << inDepth[j];
+            if (inDepth[j] > 4500.0 || inDepth[j] != inDepth[j]) {
                 inDepth_uint[j] = 0;
             }
             else {
-                inDepth_uint[j] = (uchar)floor(inDepth[j] * 56); // 56 = 256/4.5
+                inDepth_uint[j] = (uchar)floor(inDepth[j] * 56.0 * 0.001); // 56 = 256/4.5
             }
         }
     }
 
+
+    // cv::imshow("depth", depth_uint);
+    // cv::waitKey(1);
+
     cv::Mat depth_3_channels = cv::Mat(nr, nc, CV_8UC3);
     cv::cvtColor(depth_uint, depth_3_channels, CV_GRAY2BGR);
+
+    cv::resize(depth_3_channels, depth_3_channels, cv::Size(640,480));
+
 
     add_infos(depth_3_channels);
 
@@ -319,7 +330,7 @@ int main(int argc, char** argv)
     }
 
     ros::Subscriber direction_sub = nh.subscribe("/radar/direction", 1, callbackCommand);
-    ros::Subscriber output_sub = nh.subscribe("/mobile_base/commands/velocity", 1, callbackOutput);
+    ros::Subscriber output_sub = nh.subscribe("/smoother_cmd_vel", 1, callbackOutput);
 
     ros::Subscriber image_sub, objects_sub;
 
@@ -327,17 +338,17 @@ int main(int argc, char** argv)
     string input_mode = argv[1];
     if(input_mode == "rgb")
     {
-        image_sub = nh.subscribe("/camera/rgb/image_raw", 2, callbackRGB);
+        image_sub = nh.subscribe("/kinect2/qhd/image_color", 2, callbackRGB);
         mode = 0;
     }
     else if(input_mode == "depth")
     {
-        image_sub = nh.subscribe("/camera/depth/image_raw", 1, callbackDepth);
+        image_sub = nh.subscribe("/kinect2/sd/image_depth", 1, callbackDepth);
         mode = 1;
     }
     else if(input_mode == "depth_semantic")
     {
-        image_sub = nh.subscribe("/camera/depth/image_raw", 1, callbackDepth);
+        image_sub = nh.subscribe("/kinect2/sd/image_depth", 1, callbackDepth);
         objects_sub = nh.subscribe("/darknet_ros/bounding_boxes", 2, callbackObjects);
         mode = 2;
     }
