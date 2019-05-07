@@ -105,9 +105,9 @@ void add_infos(cv::Mat& img)
     // add commands panel
     if(direction < 0) return;
 
-    int cube_4x4_left = image_width - 80;
+    int cube_4x4_left = image_width - 100;
     int cube_4x4_top = 20;
-    int cube_4x4_cell_size = 20;
+    int cube_4x4_cell_size = 30;
     int cube_p[4][4][2]; // row, col, (x,y)
 
     for(int i=0; i<4; i++)
@@ -267,9 +267,9 @@ void callbackObjects(const darknet_ros_msgs::BoundingBoxes& objects)
             label = 6;
         else if (objects.bounding_boxes[m].Class == "laptop")
             label = 5;
-        else if (objects.bounding_boxes[m].Class == "bed")
+        else if (objects.bounding_boxes[m].Class == "book")
             label = 5;
-        else if (objects.bounding_boxes[m].Class == "tvmonitor")
+        else if (objects.bounding_boxes[m].Class == "bed")
             label = 5;
         else if (objects.bounding_boxes[m].Class == "chair")
             label = 5;
