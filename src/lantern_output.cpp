@@ -1,0 +1,121 @@
+#include <ros/ros.h>
+#include <message_filters/subscriber.h>
+#include <message_filters/sync_policies/approximate_time.h>
+#include <message_filters/time_synchronizer.h>
+#include <sensor_msgs/Image.h>
+#include <sensor_msgs/image_encodings.h>
+#include <geometry_msgs/Twist.h>
+#include <iostream>
+#include "opencv2/highgui/highgui.hpp"
+#include "opencv2/imgproc/imgproc.hpp"
+#include "opencv2/core/core.hpp"
+#include <cv_bridge/cv_bridge.h>
+
+using namespace message_filters;
+using namespace std;
+
+#define MASK_DIST 4.5
+
+ros::Publisher image_pub;
+
+void callback(const sensor_msgs::ImageConstPtr& depth, const sensor_msgs::ImageConstPtr& rgb)
+{
+    // Read from sensor msg
+    cv_bridge::CvImagePtr rgb_ptr;
+    try
+    {
+        rgb_ptr = cv_bridge::toCvCopy(rgb, sensor_msgs::image_encodings::BGR8);
+    }
+    catch (cv_bridge::Exception& e1)
+    {
+        ROS_ERROR("cv_bridge 1 exception: %s", e1.what());
+        return;
+    }
+
+    cv_bridge::CvImagePtr depth_ptr;
+    try
+    {
+        depth_ptr = cv_bridge::toCvCopy(depth, sensor_msgs::image_encodings::TYPE_32FC1);
+    }
+    catch (cv_bridge::Exception& e2)
+    {
+        ROS_ERROR("cv_bridge 2 exception: %s", e2.what());
+        return;
+    }
+
+    cv::Mat rgb_img = rgb_ptr->image;
+    cv::Mat depth_img = depth_ptr->image;
+
+    /// Transform to a Uint8 image
+    int nr_depth = depth_img.rows;
+    int nc_depth = depth_img.cols;
+    cv::Mat depth_uint(nr, nc, CV_8UC1, cv::Scalar::all(0));
+
+    for(int i=0; i<nr_depth ;i++)
+    {
+        float *inDepth = depth_img.ptr<float>(i); // float
+        uchar* inDepth_uint = depth_uint.ptr<uchar>(i);
+
+        for(int j=0; j<nc_depth; j++)
+        {
+            // cout<< " " << inDepth[j];
+            if (inDepth[j] > 4500.0 || inDepth[j] != inDepth[j]) {
+                inDepth_uint[j] = 0;
+            }
+            else {
+                inDepth_uint[j] = (uchar)floor(inDepth[j] * 56.0 * 0.001); // 56 = 256/4.5
+            }
+        }
+    }
+    cv::resize(depth_uint, depth_uint, cv::Size(640,480));
+    cv::resize(rgb_img, rgb_img, cv::Size(640,480));
+
+    // Merge by iteration
+    int nr=depth_uint.rows;
+    int nc=depth_uint.cols;
+
+    int channel = rgb_img.channels();
+
+    for(int i=0; i<nr ;i++)
+    {
+        const uchar* inDepth = depth_uint.ptr<uchar>(i); // float
+        uchar* inRgb = rgb_img.ptr<uchar>(i);
+
+        for(int j=0; j<nc; j++)
+        {
+            // cout << inDepth[j] << " ";
+            if(inDepth[j] == 0)
+            {
+                inRgb[channel*j] = 0;
+                inRgb[channel*j + 1] = 0;
+                inRgb[channel*j + 2] = 0;
+            }           
+        }
+    }
+
+    // publish rgb_img
+    rgb_ptr->image = rgb_img;
+    image_pub.publish(rgb_ptr->toImageMsg());
+}
+
+
+
+int main(int argc, char** argv)
+{
+    ros::init(argc, argv, "lantern_output");
+    ros::NodeHandle nh;
+
+    message_filters::Subscriber<sensor_msgs::Image> depth_sub(nh, "/camera/depth/image_raw", 1);
+    message_filters::Subscriber<sensor_msgs::Image> rgb_sub(nh, "/camera/rgb/image_raw", 1);
+
+    typedef sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::Image> MySyncPolicy;
+    Synchronizer<MySyncPolicy> sync(MySyncPolicy(10), depth_sub, rgb_sub);
+    sync.registerCallback(boost::bind(&callback, _1, _2));
+
+    image_pub = nh.advertise<sensor_msgs::Image>("/lantern/rgb", 1);
+
+    ros::spin();
+
+    return 0;
+}
+

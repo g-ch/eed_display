@@ -1,0 +1,9 @@
+<launch>
+	<arg name="display_type" default="rgb"/>
+
+	<node name="display" pkg="eed_display" type="display" output="screen" args="$(arg display_type)">
+	<!-- <node name="display" pkg="eed_display" type="display" output="screen" args="rgb"> -->
+	</node>
+	<node name="lantern_output" pkg="eed_display" type="lantern_output" output="screen">
+	</node>
+</launch>
