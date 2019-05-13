@@ -49,7 +49,7 @@ void callback(const sensor_msgs::ImageConstPtr& depth, const sensor_msgs::ImageC
     /// Transform to a Uint8 image
     int nr_depth = depth_img.rows;
     int nc_depth = depth_img.cols;
-    cv::Mat depth_uint(nr, nc, CV_8UC1, cv::Scalar::all(0));
+    cv::Mat depth_uint(nr_depth, nc_depth, CV_8UC1, cv::Scalar::all(0));
 
     for(int i=0; i<nr_depth ;i++)
     {
@@ -105,8 +105,8 @@ int main(int argc, char** argv)
     ros::init(argc, argv, "lantern_output");
     ros::NodeHandle nh;
 
-    message_filters::Subscriber<sensor_msgs::Image> depth_sub(nh, "/camera/depth/image_raw", 1);
-    message_filters::Subscriber<sensor_msgs::Image> rgb_sub(nh, "/camera/rgb/image_raw", 1);
+    message_filters::Subscriber<sensor_msgs::Image> depth_sub(nh, "/kinect2/sd/image_depth", 1);
+    message_filters::Subscriber<sensor_msgs::Image> rgb_sub(nh, "/kinect2/qhd/image_color", 1);
 
     typedef sync_policies::ApproximateTime<sensor_msgs::Image, sensor_msgs::Image> MySyncPolicy;
     Synchronizer<MySyncPolicy> sync(MySyncPolicy(10), depth_sub, rgb_sub);

@@ -26,3 +26,7 @@ target_link_libraries(display ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
 
 add_executable(lantern_output src/lantern_output.cpp)
 target_link_libraries(lantern_output ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})
+
+
+add_executable(recordRouteCommReal src/recordRouteComm_real.cpp)
+target_link_libraries(recordRouteCommReal ${catkin_LIBRARIES} ${OpenCV_LIBRARIES})

@@ -228,6 +228,8 @@ void callbackDepth(const sensor_msgs::ImageConstPtr& depth_msg)
 
 
     add_infos(depth_3_channels);
+    boxes.clear();
+
 
     cv::imshow("Monitor", depth_3_channels);
     cv::waitKey(1);
