@@ -46,7 +46,7 @@ float people_near = 0.f;
 
 float arr_command = 0; // 0:idle 1:fwd 2:bckwd 3:lftwd 4:rightwd
 // float arr_control[2] = {0.0, 0.0}; // linear vel; angular vel
-
+float min_person_dist = 0.f;
 
 void write_xy(ofstream& file, const float* arr)
 {
@@ -99,6 +99,9 @@ void writeCsvFromFloatArrs(ofstream& file)
     write_float(file, robot_yaw);
     
     write_float(file, people_near);
+    people_near = 0.0;
+
+    write_float(file, min_person_dist);
 
     write_endl(file);
 
@@ -241,6 +244,10 @@ void callbackObjects(const darknet_ros_msgs::BoundingBoxes& objects)
     }
 }
 
+void callbackPersonDist(const std_msgs::Float64& msg)
+{
+    min_person_dist = msg.data;
+}
 
 int main(int argc, char** argv)
 {
@@ -272,6 +279,7 @@ int main(int argc, char** argv)
     ros::Subscriber status_sub = nh.subscribe("/robot/status", 1, callbackRobotStatus);
     ros::Subscriber output_sub = nh.subscribe("smoother_cmd_vel", 1, callbackOutput);
     ros::Subscriber objects_sub = nh.subscribe("/darknet_ros/bounding_boxes", 2, callbackObjects);
+    ros::Subscriber person_dist_sub = nh.subscribe("/person_dist", 1, callbackPersonDist);
 
     ros::Timer timer = nh.createTimer(ros::Duration(0.1), timerCallback);
 
