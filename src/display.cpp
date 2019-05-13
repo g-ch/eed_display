@@ -12,6 +12,11 @@
 #include "/home/gg/intel_nav_ws/devel/include/darknet_ros_msgs/BoundingBoxes.h"
 #include <string>
 #include <vector>
+#include <math.h>
+
+#define MAX_DEPTH 4500  // mm
+#define IMGWIDTH 640
+#define IMGHEIGHT 480
 
 using namespace std;
 
@@ -32,6 +37,10 @@ typedef struct semantic_box{
 }SemanticBox;
 
 std::vector<SemanticBox> boxes;
+cv::Mat depth_img_global;
+
+ros::Publisher person_dist_pub;
+
 
 void add_infos(cv::Mat& img)
 {
@@ -51,7 +60,7 @@ void add_infos(cv::Mat& img)
             for(int i=0; i<objects_num; i++)
             {
                 cv::rectangle(overlay, boxes[i].p1, boxes[i].p2, boxes[i].color, -1, 1 ,0);
-                cv::putText(img, boxes[i].name, cv::Point(boxes[i].p1.x, boxes[i].p1.y-10), cv::FONT_HERSHEY_TRIPLEX, 0.5, boxes[i].color, 1, CV_AA);
+                cv::putText(img, boxes[i].name, cv::Point(boxes[i].p1.x, boxes[i].p1.y+10), cv::FONT_HERSHEY_TRIPLEX, 0.5, cv::Scalar(0, 0, 0), 1, CV_AA);
             }
 
             float alpha = 0.5; // transparency
@@ -171,7 +180,7 @@ void callbackRGB(const sensor_msgs::ImageConstPtr& rgb_msg)
         return;
     }
     cv::Mat rgb_img = rgb_ptr->image;
-    cv::resize(rgb_img, rgb_img, cv::Size(640,480));
+    cv::resize(rgb_img, rgb_img, cv::Size(IMGWIDTH,IMGHEIGHT));
 
 
     add_infos(rgb_img);
@@ -193,7 +202,10 @@ void callbackDepth(const sensor_msgs::ImageConstPtr& depth_msg)
         return;
     }
     cv::Mat depth_img = depth_ptr->image;
-    
+    depth_img_global = depth_img;
+
+    if(mode == 0)  // Do not show in RGB mode
+        return;
 
     /// Transform to a Uint8 image
     int nr = depth_img.rows;
@@ -208,7 +220,7 @@ void callbackDepth(const sensor_msgs::ImageConstPtr& depth_msg)
         for(int j=0; j<nc; j++)
         {
             // cout<< " " << inDepth[j];
-            if (inDepth[j] > 4500.0 || inDepth[j] != inDepth[j]) {
+            if (inDepth[j] > MAX_DEPTH || inDepth[j] != inDepth[j]) {
                 inDepth_uint[j] = 0;
             }
             else {
@@ -224,12 +236,10 @@ void callbackDepth(const sensor_msgs::ImageConstPtr& depth_msg)
     cv::Mat depth_3_channels = cv::Mat(nr, nc, CV_8UC3);
     cv::cvtColor(depth_uint, depth_3_channels, CV_GRAY2BGR);
 
-    cv::resize(depth_3_channels, depth_3_channels, cv::Size(640,480));
+    cv::resize(depth_3_channels, depth_3_channels, cv::Size(IMGWIDTH,IMGHEIGHT));
 
 
     add_infos(depth_3_channels);
-    boxes.clear();
-
 
     cv::imshow("Monitor", depth_3_channels);
     cv::waitKey(1);
@@ -259,6 +269,7 @@ void callbackCommand(const std_msgs::Float64MultiArray& cmd_msg)
 void callbackObjects(const darknet_ros_msgs::BoundingBoxes& objects)
 {
     boxes.clear();
+    float minimum_dist = 10000.0;
 
     for (int m = 0; m < objects.bounding_boxes.size(); m++) {
         int label;
@@ -273,7 +284,56 @@ void callbackObjects(const darknet_ros_msgs::BoundingBoxes& objects)
         7: person
         */
         if (objects.bounding_boxes[m].Class == "person")
+        {
             label = 7;
+
+            int mid_x = (objects.bounding_boxes[m].xmin + objects.bounding_boxes[m].xmax) / 2;
+            int mid_y = (objects.bounding_boxes[m].ymin + objects.bounding_boxes[m].ymax) / 2;
+
+            float object_z = depth_img_global.at<float>(mid_x, mid_y);
+            if(object_z != object_z) object_z = MAX_DEPTH; // NAN issue
+
+            int rect_length_half = 10;
+            for(int i = -1; i < 2; i ++)  // Find nearest point among center 10 points. Character "Tian" corners
+            {
+                int offset_x = i * rect_length_half;
+
+                for(int n = -1; n < 2; n++)
+                {
+                    int offset_y = n * rect_length_half;
+
+                    int new_x = mid_x + offset_x;
+                    int new_y = mid_y + offset_y;
+
+                    if(new_x < 1 || new_x > IMGWIDTH - 2) continue;
+                    if(new_y < 1 || new_y > IMGHEIGHT - 2) continue;
+
+                    float sampled_z = depth_img_global.at<float>(new_x, new_y);
+                    if(sampled_z == sampled_z; && sampled_z < object_z){
+                        object_z = sampled_z;
+                        mid_x = new_x;
+                        mid_y = new_y;
+                    }
+                }
+
+            }
+            object_z = object_z /1000.f;  //mm to m
+
+            static const float camera_fx = 555.f; // !!!! CHG NOTE
+            static const float camera_fy = 555.f;
+
+            float z_div_camera_fx = object_z /camera_fx;
+            float z_div_camera_fy = object_z /camera_fy;
+
+            float object_x = (mid_x - IMGWIDTH / 2) * z_div_camera_fx;
+            float object_y = (mid_y - IMGHEIGHT / 2) * z_div_camera_fy;
+
+            float plane_dist = sqrt(object_x*object_x + object_z*object_z);
+            if(plane_dist < minimum_dist){
+                minimum_dist = plane_dist;
+            }
+
+        }
         else if (objects.bounding_boxes[m].Class == "cat")
             label = 6;
         else if (objects.bounding_boxes[m].Class == "dog")
@@ -311,6 +371,14 @@ void callbackObjects(const darknet_ros_msgs::BoundingBoxes& objects)
             boxes.push_back(object);
         }
     }
+
+    if(minimum_dist < 10000.0)
+    {
+        std_msgs::Float64 dist_to_pub;
+        dist_to_pub.data = minimum_dist;
+        person_dist_pub.publish(dist_to_pub);
+    }
+
 }
 
 void callbackOutput(const geometry_msgs::Twist& output)
@@ -331,6 +399,8 @@ int main(int argc, char** argv)
         return 0;
     }
 
+    person_dist_pub = nh.advertise<std_msgs::Float64>("/person_dist", 1);
+
     ros::Subscriber direction_sub = nh.subscribe("/radar/direction", 1, callbackCommand);
     ros::Subscriber output_sub = nh.subscribe("/smoother_cmd_vel", 1, callbackOutput);
 
@@ -340,12 +410,15 @@ int main(int argc, char** argv)
     string input_mode = argv[1];
     if(input_mode == "rgb")
     {
-        image_sub = nh.subscribe("/kinect2/qhd/image_color", 2, callbackRGB);
+        image_sub = nh.subscribe("/kinect2/qhd/image_color", 1, callbackRGB);
+        image_sub = nh.subscribe("/kinect2/sd/image_depth", 1, callbackDepth);
+        objects_sub = nh.subscribe("/darknet_ros/bounding_boxes", 2, callbackObjects);
         mode = 0;
     }
     else if(input_mode == "depth")
     {
         image_sub = nh.subscribe("/kinect2/sd/image_depth", 1, callbackDepth);
+        objects_sub = nh.subscribe("/darknet_ros/bounding_boxes", 2, callbackObjects);
         mode = 1;
     }
     else if(input_mode == "depth_semantic")
