@@ -100,7 +100,7 @@ void add_infos(cv::Mat& img)
                   cv::Point(angular_v_bar_center_x + bar_size_half, angular_v_bar_center_y + bar_size_half), cv::Scalar(0, 255, 0), -1, 1 ,0);
 
     cv::Point p_text1 = cv::Point(60, image_height - 80);
-    cv::Point p_text2 = cv::Point(60, image_height - 65);
+    cv::Point p_text2 = cv::Point(60, image_height - 55);
     char v_lnr[256];
     char v_ang[256];
     sprintf(v_lnr, "Linear Speed: %lf", linear_v);
@@ -108,8 +108,8 @@ void add_infos(cv::Mat& img)
     string text1 = v_lnr;
     string text2 = v_ang;
 
-    cv::putText(img, text1, p_text1, cv::FONT_HERSHEY_TRIPLEX, 0.5, cv::Scalar(255, 255, 0), 1, CV_AA);
-    cv::putText(img, text2, p_text2, cv::FONT_HERSHEY_TRIPLEX, 0.5, cv::Scalar(255, 255, 0), 1, CV_AA);
+    cv::putText(img, text1, p_text1, cv::FONT_HERSHEY_TRIPLEX, 0.6, cv::Scalar(204, 50, 153), 1.2, CV_AA);
+    cv::putText(img, text2, p_text2, cv::FONT_HERSHEY_TRIPLEX, 0.6, cv::Scalar(204, 50, 153), 1.2, CV_AA);
 
     // add commands panel
     if(direction < 0) return;
@@ -168,6 +168,7 @@ void add_infos(cv::Mat& img)
 
 void callbackRGB(const sensor_msgs::ImageConstPtr& rgb_msg)
 {
+    // ROS_INFO("RGB_IN");
     // Read from sensor msg
     cv_bridge::CvImagePtr rgb_ptr;
     try
@@ -202,10 +203,8 @@ void callbackDepth(const sensor_msgs::ImageConstPtr& depth_msg)
         return;
     }
     cv::Mat depth_img = depth_ptr->image;
-    depth_img_global = depth_img;
 
-    if(mode == 0)  // Do not show in RGB mode
-        return;
+    
 
     /// Transform to a Uint8 image
     int nr = depth_img.rows;
@@ -233,11 +232,17 @@ void callbackDepth(const sensor_msgs::ImageConstPtr& depth_msg)
     // cv::imshow("depth", depth_uint);
     // cv::waitKey(1);
 
-    cv::Mat depth_3_channels = cv::Mat(nr, nc, CV_8UC3);
+    
+
+
+    cv::resize(depth_uint, depth_uint, cv::Size(IMGWIDTH,IMGHEIGHT));
+    depth_img_global = depth_uint;
+
+    if(mode == 0)  // Do not show in RGB mode
+        return;
+
+    cv::Mat depth_3_channels = cv::Mat(cv::Size(IMGWIDTH,IMGHEIGHT), CV_8UC3);
     cv::cvtColor(depth_uint, depth_3_channels, CV_GRAY2BGR);
-
-    cv::resize(depth_3_channels, depth_3_channels, cv::Size(IMGWIDTH,IMGHEIGHT));
-
 
     add_infos(depth_3_channels);
 
@@ -270,6 +275,7 @@ void callbackObjects(const darknet_ros_msgs::BoundingBoxes& objects)
 {
     boxes.clear();
     float minimum_dist = 10000.0;
+    float object_z = 0.0;
 
     for (int m = 0; m < objects.bounding_boxes.size(); m++) {
         int label;
@@ -289,18 +295,29 @@ void callbackObjects(const darknet_ros_msgs::BoundingBoxes& objects)
 
             int mid_x = (objects.bounding_boxes[m].xmin + objects.bounding_boxes[m].xmax) / 2;
             int mid_y = (objects.bounding_boxes[m].ymin + objects.bounding_boxes[m].ymax) / 2;
+            int final_x = mid_x;
+            int final_y = mid_y;
 
-            float object_z = depth_img_global.at<float>(mid_x, mid_y);
+            int size_x = objects.bounding_boxes[m].xmax - objects.bounding_boxes[m].xmin;
+            int size_y = objects.bounding_boxes[m].ymax - objects.bounding_boxes[m].ymin;
+
+            if(mid_x < 1 || mid_x > IMGWIDTH - 2) continue;
+            if(mid_y < 1 || mid_y > IMGHEIGHT - 2) continue;
+
+            object_z = depth_img_global.at<uchar>(mid_y, mid_x); //rows, cols
             if(object_z != object_z) object_z = MAX_DEPTH; // NAN issue
+            
+            int search_times_length = 3;
+            int rect_length_half_x = size_x / search_times_length / 2;
+            int rect_length_half_y = size_y / search_times_length / 2;
 
-            int rect_length_half = 10;
-            for(int i = -1; i < 2; i ++)  // Find nearest point among center 10 points. Character "Tian" corners
+            for(int i = -search_times_length; i < search_times_length-1; i ++)  // Find nearest point among a amtrix
             {
-                int offset_x = i * rect_length_half;
+                int offset_x = i * rect_length_half_x;
 
-                for(int n = -1; n < 2; n++)
+                for(int n = -search_times_length; n < search_times_length-1; n++)
                 {
-                    int offset_y = n * rect_length_half;
+                    int offset_y = n * rect_length_half_y;
 
                     int new_x = mid_x + offset_x;
                     int new_y = mid_y + offset_y;
@@ -308,25 +325,28 @@ void callbackObjects(const darknet_ros_msgs::BoundingBoxes& objects)
                     if(new_x < 1 || new_x > IMGWIDTH - 2) continue;
                     if(new_y < 1 || new_y > IMGHEIGHT - 2) continue;
 
-                    float sampled_z = depth_img_global.at<float>(new_x, new_y);
-                    if(sampled_z == sampled_z; && sampled_z < object_z){
+                    float sampled_z = depth_img_global.at<uchar>(new_y, new_x); //rows, cols
+                    if(sampled_z == sampled_z && sampled_z < object_z && sampled_z > 10){
                         object_z = sampled_z;
-                        mid_x = new_x;
-                        mid_y = new_y;
+                        final_x = new_x;
+                        final_y = new_y;
                     }
                 }
 
             }
-            object_z = object_z /1000.f;  //mm to m
 
-            static const float camera_fx = 555.f; // !!!! CHG NOTE
-            static const float camera_fy = 555.f;
+            object_z = object_z / 56.f;  // to m
+
+            static const float camera_fx = 365.2f; // !!!! CHG NOTE
+            static const float camera_fy = 491.2f;
+            static const float camera_x0 = 320.f; // !!!! CHG NOTE
+            static const float camera_y0 = 225.f;
 
             float z_div_camera_fx = object_z /camera_fx;
             float z_div_camera_fy = object_z /camera_fy;
 
-            float object_x = (mid_x - IMGWIDTH / 2) * z_div_camera_fx;
-            float object_y = (mid_y - IMGHEIGHT / 2) * z_div_camera_fy;
+            float object_x = (final_x - camera_x0) * z_div_camera_fx;
+            float object_y = (final_y - camera_y0) * z_div_camera_fy;
 
             float plane_dist = sqrt(object_x*object_x + object_z*object_z);
             if(plane_dist < minimum_dist){
@@ -372,7 +392,7 @@ void callbackObjects(const darknet_ros_msgs::BoundingBoxes& objects)
         }
     }
 
-    if(minimum_dist < 10000.0)
+    if(minimum_dist < 3.f && minimum_dist > 0.1f)
     {
         std_msgs::Float64 dist_to_pub;
         dist_to_pub.data = minimum_dist;
@@ -404,26 +424,26 @@ int main(int argc, char** argv)
     ros::Subscriber direction_sub = nh.subscribe("/radar/direction", 1, callbackCommand);
     ros::Subscriber output_sub = nh.subscribe("/smoother_cmd_vel", 1, callbackOutput);
 
-    ros::Subscriber image_sub, objects_sub;
+    ros::Subscriber rgb_sub, depth_sub, objects_sub;
 
     /// Display according to different modes
     string input_mode = argv[1];
     if(input_mode == "rgb")
     {
-        image_sub = nh.subscribe("/kinect2/qhd/image_color", 1, callbackRGB);
-        image_sub = nh.subscribe("/kinect2/sd/image_depth", 1, callbackDepth);
+        rgb_sub = nh.subscribe("/kinect2/qhd/image_color", 1, callbackRGB); 
+        depth_sub = nh.subscribe("/kinect2/sd/image_depth", 1, callbackDepth);
         objects_sub = nh.subscribe("/darknet_ros/bounding_boxes", 2, callbackObjects);
         mode = 0;
     }
     else if(input_mode == "depth")
     {
-        image_sub = nh.subscribe("/kinect2/sd/image_depth", 1, callbackDepth);
+        depth_sub = nh.subscribe("/kinect2/sd/image_depth", 1, callbackDepth);
         objects_sub = nh.subscribe("/darknet_ros/bounding_boxes", 2, callbackObjects);
         mode = 1;
     }
     else if(input_mode == "depth_semantic")
     {
-        image_sub = nh.subscribe("/kinect2/sd/image_depth", 1, callbackDepth);
+        depth_sub = nh.subscribe("/kinect2/sd/image_depth", 1, callbackDepth);
         objects_sub = nh.subscribe("/darknet_ros/bounding_boxes", 2, callbackObjects);
         mode = 2;
     }
